@@ -121,8 +121,8 @@ public class SerialInputOutputManager {
      */
     public void start() {
         if(mState.compareAndSet(State.STOPPED, State.STARTING)) {
-            mStartuplatch = new CountDownLatch(2);
-            mShutdownlatch = new CountDownLatch(2);
+            mStartuplatch = new CountDownLatch(1);
+            mShutdownlatch = new CountDownLatch(1);
             new Thread(this::runRead, this.getClass().getSimpleName() + "_read").start();
             try {
                 mStartuplatch.await();
@@ -157,7 +157,7 @@ public class SerialInputOutputManager {
     private boolean isStillRunning() {
         State state = mState.get();
         return ((state == State.RUNNING) || (state == State.STARTING))
-            && (mShutdownlatch.getCount() == 2)
+            && (mShutdownlatch.getCount() == 1)
             && !Thread.currentThread().isInterrupted();
     }
 
