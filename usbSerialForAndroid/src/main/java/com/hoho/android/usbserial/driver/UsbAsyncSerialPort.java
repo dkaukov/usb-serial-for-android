@@ -8,7 +8,7 @@ import java.io.IOException;
 public interface UsbAsyncSerialPort {
 
     /**
-     * Writes data asynchronously to the USB serial port.
+     * Puts data to the tail of the queue for asynchronous write operations and exits immediately.
      *
      * @param src the data to be written
      * @throws IOException if an I/O error occurs
@@ -16,13 +16,13 @@ public interface UsbAsyncSerialPort {
     void asyncWrite(final byte[] src) throws IOException;
 
     /**
-     * Begins an asynchronous read operation with specified buffer size and count.
+     * Prepares the read queue with specified buffer size and count for asynchronous read operations.
      *
      * @param bufferSize the size of each buffer
      * @param bufferCount the number of buffers
      * @throws IOException if an I/O error occurs
      */
-    void asyncReadBegin(final int bufferSize, final int bufferCount) throws IOException;
+    void prepareAsyncReadQueue(final int bufferSize, final int bufferCount) throws IOException;
 
     /**
      * Peeks the ready buffer from the head of the queue for a read operation. If no buffer is ready, it blocks until data is available.

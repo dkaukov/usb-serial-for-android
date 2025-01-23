@@ -372,7 +372,7 @@ public abstract class CommonUsbSerialPort implements UsbSerialPort, UsbAsyncSeri
     }
 
     @Override
-    public void asyncReadBegin(int bufferSize, int bufferCount) throws IOException {
+    public void prepareAsyncReadQueue(int bufferSize, int bufferCount) throws IOException {
         for (int i = 0; i < bufferCount; i++) {
             ByteBuffer buffer = ByteBuffer.allocate(bufferSize);
             UsbRequest request = new UsbRequest();
