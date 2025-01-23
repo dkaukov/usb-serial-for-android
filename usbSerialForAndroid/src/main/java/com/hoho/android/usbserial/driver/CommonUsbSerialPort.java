@@ -383,7 +383,7 @@ public abstract class CommonUsbSerialPort implements UsbSerialPort, UsbAsyncSeri
     }
 
     @Override
-    public byte[] asyncRead() throws IOException {
+    public byte[] peekReadyReadBuffer() throws IOException {
         // Wait for the request to complete
         final UsbRequest completedRequest = mConnection.requestWait();
         if (completedRequest != null) {

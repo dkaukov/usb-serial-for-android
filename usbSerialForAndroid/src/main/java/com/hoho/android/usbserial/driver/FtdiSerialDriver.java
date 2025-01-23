@@ -460,8 +460,8 @@ public class FtdiSerialDriver implements UsbSerialDriver {
         }
 
         @Override
-        public byte[] asyncRead() throws IOException {
-            byte[] res = super.asyncRead();
+        public byte[] peekReadyReadBuffer() throws IOException {
+            byte[] res = super.peekReadyReadBuffer();
             readFilter(res, res.length);
             return res;
         }

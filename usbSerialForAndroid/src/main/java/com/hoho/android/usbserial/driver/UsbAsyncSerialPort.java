@@ -25,10 +25,10 @@ public interface UsbAsyncSerialPort {
     void asyncReadBegin(final int bufferSize, final int bufferCount) throws IOException;
 
     /**
-     * Reads data asynchronously from the USB serial port.
+     * Peeks the ready buffer from the head of the queue for a read operation. If no buffer is ready, it blocks until data is available.
      *
      * @return the data read from the USB serial port
      * @throws IOException if an I/O error occurs
      */
-    byte[] asyncRead() throws IOException;
+    byte[] peekReadyReadBuffer() throws IOException;
 }
