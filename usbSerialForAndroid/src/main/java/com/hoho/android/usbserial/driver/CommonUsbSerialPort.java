@@ -354,21 +354,40 @@ public abstract class CommonUsbSerialPort implements UsbSerialPort, UsbAsyncSeri
     @Override
     public void setBreak(boolean value) throws IOException { throw new UnsupportedOperationException(); }
 
+
+    protected interface ChunkConsumer {
+        void process(ByteBuffer chunk) throws IOException;
+    }
+
+    protected static void splitToChunks(byte[] src, int maxPacketSize, ChunkConsumer consumer) throws IOException {
+        int offset = 0;
+        while (offset < src.length) {
+            // Calculate the size of the current chunk
+            int chunkSize = Math.min(maxPacketSize, src.length - offset);
+            // Create a ByteBuffer for the chunk and fill it with data
+            ByteBuffer chunk = ByteBuffer.allocate(chunkSize);
+            chunk.put(src, offset, chunkSize);
+            chunk.flip();  // Prepare the buffer for reading (consuming)
+            // Process the chunk using the provided consumer
+            consumer.process(chunk);
+            // Update the offset to the next chunk
+            offset += chunkSize;
+        }
+    }
+
     @Override
     public void asyncWrite(byte[] src) throws IOException {
-        // Create a new ByteBuffer to hold the data you want to write
-        ByteBuffer writeBuffer = ByteBuffer.allocate(src.length);
-        writeBuffer.put(src);
-        writeBuffer.flip();  // Prepare the buffer for reading
-        // Create a UsbRequest object
-        UsbRequest writeRequest = new UsbRequest();
-        writeRequest.initialize(mConnection, mWriteEndpoint);
-        writeRequest.setClientData(writeBuffer);
-        // Queue the request for asynchronous write
-        boolean isQueued = writeRequest.queue(writeBuffer, writeBuffer.remaining());
-        if (!isQueued) {
-            throw new IOException("Failed to queue write request");
-        }
+        splitToChunks(src, mWriteEndpoint.getMaxPacketSize(), chunk -> {
+            // Create a UsbRequest object
+            UsbRequest writeRequest = new UsbRequest();
+            writeRequest.initialize(mConnection, mWriteEndpoint);
+            writeRequest.setClientData(chunk);
+            // Queue the request for asynchronous write
+            boolean isQueued = writeRequest.queue(chunk, chunk.remaining());
+            if (!isQueued) {
+                throw new IOException("Failed to queue write request");
+            }
+        });
     }
 
     @Override
