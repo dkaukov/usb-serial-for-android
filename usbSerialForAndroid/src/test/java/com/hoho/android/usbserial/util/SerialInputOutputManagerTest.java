@@ -33,7 +33,8 @@ public class SerialInputOutputManagerTest {
         when(readEndpoint.getMaxPacketSize()).thenReturn(16);
         CommonUsbSerialPort port = mock(CommonUsbSerialPort.class);
         when(port.getReadEndpoint()).thenReturn(readEndpoint);
-        when(port.read(new byte[16], 0)).thenReturn(1);
+        when(port.asAsync()).thenReturn(port);
+        when(port.peekReadyReadBuffer()).thenReturn(new byte[16]);
         SerialInputOutputManager manager = new SerialInputOutputManager(port);
         manager.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
 

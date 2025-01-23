@@ -1224,7 +1224,6 @@ public class DeviceTest {
             writeAhead = 50;
 
         usb.open(EnumSet.of(UsbWrapper.OpenCloseFlags.NO_IOMANAGER_START));
-        usb.ioManager.setReadTimeout(readTimeout);
         if(readBufferSize > 0)
             usb.ioManager.setReadBufferSize(readBufferSize);
         usb.ioManager.start();
@@ -1401,24 +1400,12 @@ public class DeviceTest {
         usb.ioManager = new SerialInputOutputManager(usb.serialPort, usb);
         assertEquals(usb, usb.ioManager.getListener());
 
-        assertEquals(0, usb.ioManager.getReadTimeout());
-        usb.ioManager.setReadTimeout(10);
-        assertEquals(10, usb.ioManager.getReadTimeout());
-        assertEquals(0, usb.ioManager.getWriteTimeout());
-        usb.ioManager.setWriteTimeout(11);
-        assertEquals(11, usb.ioManager.getWriteTimeout());
 
         assertEquals(usb.serialPort.getReadEndpoint().getMaxPacketSize(), usb.ioManager.getReadBufferSize());
         usb.ioManager.setReadBufferSize(12);
         assertEquals(12, usb.ioManager.getReadBufferSize());
-        assertEquals(4096, usb.ioManager.getWriteBufferSize());
-        usb.ioManager.setWriteBufferSize(13);
-        assertEquals(13, usb.ioManager.getWriteBufferSize());
 
         usb.ioManager.setReadBufferSize(usb.ioManager.getReadBufferSize());
-        usb.ioManager.setWriteBufferSize(usb.ioManager.getWriteBufferSize());
-        usb.ioManager.setReadTimeout(usb.ioManager.getReadTimeout());
-        usb.ioManager.setWriteTimeout(usb.ioManager.getWriteTimeout());
         usb.close();
 
         usb.open(EnumSet.of(UsbWrapper.OpenCloseFlags.NO_IOMANAGER_START)); // creates new IoManager
@@ -1442,17 +1429,8 @@ public class DeviceTest {
             usb.ioManager.setThreadPriority(Process.THREAD_PRIORITY_LOWEST);
             fail("setThreadPriority IllegalStateException expected");
         } catch (IllegalStateException ignored) {}
-        try {
-            usb.ioManager.setReadTimeout(20);
-            fail("setReadTimeout IllegalStateException expected");
-        } catch (IllegalStateException ignored) {}
-        assertEquals(0, usb.ioManager.getReadTimeout());
-        usb.ioManager.setWriteTimeout(21);
-        assertEquals(21, usb.ioManager.getWriteTimeout());
         usb.ioManager.setReadBufferSize(22);
         assertEquals(22, usb.ioManager.getReadBufferSize());
-        usb.ioManager.setWriteBufferSize(23);
-        assertEquals(23, usb.ioManager.getWriteBufferSize());
 
         // readbuffer resize
         telnet.write(new byte[1]);
@@ -1468,13 +1446,7 @@ public class DeviceTest {
             fail("expected BufferOverflowException");
         } catch (BufferOverflowException ignored) {}
 
-        usb.ioManager.setWriteBufferSize(16);
         usb.ioManager.writeAsync("1234567890AB".getBytes());
-        try {
-            usb.ioManager.setWriteBufferSize(8);
-            fail("expected BufferOverflowException");
-        } catch (BufferOverflowException ignored) {}
-        usb.ioManager.setWriteBufferSize(24); // pending date copied to new buffer
         telnet.write("a".getBytes());
         assertThat(usb.read(1), equalTo("a".getBytes()));
         assertThat(telnet.read(12), equalTo("1234567890AB".getBytes()));
@@ -1532,7 +1504,6 @@ public class DeviceTest {
 
         // with timeout: write after timeout
         usb.open(EnumSet.of(UsbWrapper.OpenCloseFlags.NO_IOMANAGER_START));
-        usb.ioManager.setReadTimeout(100);
         usb.ioManager.start();
         usb.setParameters(19200, 8, 1, UsbSerialPort.PARITY_NONE);
         telnet.setParameters(19200, 8, 1, UsbSerialPort.PARITY_NONE);
@@ -1540,14 +1511,12 @@ public class DeviceTest {
         usb.ioManager.writeAsync(buf);
         data = telnet.read(2);
         assertEquals(2, data.length);
-        usb.ioManager.setReadTimeout(200);
 
         // with internal SerialTimeoutException
         TestBuffer tbuf = new TestBuffer(usb.writeBufferSize + 2*usb.writePacketSize);
         byte[] pbuf1 = new byte[tbuf.buf.length - 4];
         byte[] pbuf2 = new byte[1];
         System.arraycopy(tbuf.buf, 0,pbuf1, 0, pbuf1.length);
-        usb.ioManager.setWriteTimeout(20); // tbuf len >= 128, needs 133msec @ 9600 baud
         usb.setParameters(9600, 8, 1, UsbSerialPort.PARITY_NONE);
         telnet.setParameters(9600, 8, 1, UsbSerialPort.PARITY_NONE);
         usb.ioManager.writeAsync(pbuf1);
