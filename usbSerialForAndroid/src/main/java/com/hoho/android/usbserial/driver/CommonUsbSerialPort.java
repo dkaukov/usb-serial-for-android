@@ -403,4 +403,9 @@ public abstract class CommonUsbSerialPort implements UsbSerialPort, UsbAsyncSeri
             throw new IOException("Error waiting for request");
         }
     }
+
+    @Override
+    public UsbAsyncSerialPort asAsync() {
+        return this;
+    };
 }

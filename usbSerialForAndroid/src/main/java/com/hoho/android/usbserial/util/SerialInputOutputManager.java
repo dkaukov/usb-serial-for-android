@@ -9,15 +9,15 @@ package com.hoho.android.usbserial.util;
 import android.os.Process;
 import android.util.Log;
 
+import com.hoho.android.usbserial.driver.UsbAsyncSerialPort;
 import com.hoho.android.usbserial.driver.UsbSerialPort;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Utility class which services a {@link UsbSerialPort} in its {@link #runWrite()} ()} and {@link #runRead()} ()} ()} methods.
+ * Utility class which services a {@link UsbSerialPort} in its  {@link #runRead()} ()} ()} methods.
  *
  * @author mike wakerly (opensource@hoho.com)
  */
@@ -33,23 +33,16 @@ public class SerialInputOutputManager {
     public static boolean DEBUG = false;
 
     private static final String TAG = SerialInputOutputManager.class.getSimpleName();
-    private static final int BUFSIZ = 4096;
 
-    private int mReadTimeout = 0;
-    private int mWriteTimeout = 0;
-
-    private final Object mReadBufferLock = new Object();
-    private final Object mWriteBufferLock = new Object();
-
-    private ByteBuffer mReadBuffer; // default size = getReadEndpoint().getMaxPacketSize()
-    private ByteBuffer mWriteBuffer = ByteBuffer.allocate(BUFSIZ);
+    private int mReadBufferSize; // default size = getReadEndpoint().getMaxPacketSize()
+    private int mReadBufferCount = 4;
 
     private int mThreadPriority = Process.THREAD_PRIORITY_URGENT_AUDIO;
     private final AtomicReference<State> mState = new AtomicReference<>(State.STOPPED);
     private CountDownLatch mStartuplatch = new CountDownLatch(2);
     private CountDownLatch mShutdownlatch = new CountDownLatch(2);
     private Listener mListener; // Synchronized by 'this'
-    private final UsbSerialPort mSerialPort;
+    private final UsbAsyncSerialPort mSerialPort;
 
     public interface Listener {
         /**
@@ -58,20 +51,20 @@ public class SerialInputOutputManager {
         void onNewData(byte[] data);
 
         /**
-         * Called when {@link SerialInputOutputManager#runRead()} ()} or {@link SerialInputOutputManager#runWrite()} ()} ()} aborts due to an error.
+         * Called when {@link SerialInputOutputManager#runRead()} ()}  aborts due to an error.
          */
         void onRunError(Exception e);
     }
 
     public SerialInputOutputManager(UsbSerialPort serialPort) {
-        mSerialPort = serialPort;
-        mReadBuffer = ByteBuffer.allocate(serialPort.getReadEndpoint().getMaxPacketSize());
+        mSerialPort = serialPort.asAsync();
+        mReadBufferSize = serialPort.getReadEndpoint().getMaxPacketSize();
     }
 
     public SerialInputOutputManager(UsbSerialPort serialPort, Listener listener) {
-        mSerialPort = serialPort;
+        mSerialPort = serialPort.asAsync();
         mListener = listener;
-        mReadBuffer = ByteBuffer.allocate(serialPort.getReadEndpoint().getMaxPacketSize());
+        mReadBufferSize = serialPort.getReadEndpoint().getMaxPacketSize();
     }
 
     public synchronized void setListener(Listener listener) {
@@ -95,65 +88,32 @@ public class SerialInputOutputManager {
     }
 
     /**
-     * read/write buffer size
+     * read buffer size
      */
     public void setReadBufferSize(int bufferSize) {
-        if (getReadBufferSize() == bufferSize)
-            return;
-        synchronized (mReadBufferLock) {
-            mReadBuffer = ByteBuffer.allocate(bufferSize);
-        }
+        mReadBufferSize = bufferSize;
     }
 
     public int getReadBufferSize() {
-        return mReadBuffer.capacity();
+        return mReadBufferSize;
+    }
+
+    public int getReadBufferCount() {
+        return mReadBufferCount;
+    }
+
+    public void setReadBufferCount(int readBufferCount) {
+        this.mReadBufferCount = readBufferCount;
     }
 
     /**
-     * read/write timeout
+     * Write data to the serial port
+     *
+     * @param data the data to write
+     * @throws IOException on error writing data
      */
-    public void setReadTimeout(int timeout) {
-        // when set if already running, read already blocks and the new value will not become effective now
-        if(mReadTimeout == 0 && timeout != 0 && mState.get() != State.STOPPED)
-            throw new IllegalStateException("readTimeout only configurable before SerialInputOutputManager is started");
-        mReadTimeout = timeout;
-    }
-
-    public int getReadTimeout() {
-        return mReadTimeout;
-    }
-
-    public void setWriteTimeout(int timeout) {
-        mWriteTimeout = timeout;
-    }
-
-    public int getWriteTimeout() {
-        return mWriteTimeout;
-    }
-
-    public void setWriteBufferSize(int bufferSize) {
-        if(getWriteBufferSize() == bufferSize)
-            return;
-        synchronized (mWriteBufferLock) {
-            ByteBuffer newWriteBuffer = ByteBuffer.allocate(bufferSize);
-            if(mWriteBuffer.position() > 0)
-                newWriteBuffer.put(mWriteBuffer.array(), 0, mWriteBuffer.position());
-            mWriteBuffer = newWriteBuffer;
-        }
-    }
-
-    public int getWriteBufferSize() {
-        return mWriteBuffer.capacity();
-    }
-
-    /**
-     * when using writeAsync, it is recommended to use readTimeout != 0,
-     * else the write will be delayed until read data is available
-     */
-    public void writeAsync(byte[] data) {
-        synchronized (mWriteBufferLock) {
-            mWriteBuffer.put(data);
-        }
+    public void writeAsync(byte[] data) throws IOException {
+        mSerialPort.asyncWrite(data);
     }
 
     /**
@@ -164,7 +124,6 @@ public class SerialInputOutputManager {
             mStartuplatch = new CountDownLatch(2);
             mShutdownlatch = new CountDownLatch(2);
             new Thread(this::runRead, this.getClass().getSimpleName() + "_read").start();
-            new Thread(this::runWrite, this.getClass().getSimpleName() + "_write").start();
             try {
                 mStartuplatch.await();
                 mState.set(State.RUNNING);
@@ -236,6 +195,7 @@ public class SerialInputOutputManager {
         try {
             setThreadPriority();
             mStartuplatch.countDown();
+            mSerialPort.prepareAsyncReadQueue(mReadBufferSize, mReadBufferCount);
             do {
                 stepRead();
             } while (isStillRunning());
@@ -257,73 +217,16 @@ public class SerialInputOutputManager {
         }
     }
 
-    /**
-     * Continuously services the write buffers until {@link #stop()} is called, or until a driver exception is
-     * raised.
-     */
-    public void runWrite() {
-        Log.i(TAG, "runWrite running ...");
-        try {
-            setThreadPriority();
-            mStartuplatch.countDown();
-            do {
-                stepWrite();
-            } while (isStillRunning());
-            Log.i(TAG, "runWrite: Stopping mState=" + getState());
-        } catch (Throwable e) {
-            if (Thread.currentThread().isInterrupted()) {
-                Log.w(TAG, "Thread interrupted, stopping runWrite.");
-            } else {
-                Log.w(TAG, "runWrite ending due to exception: " + e.getMessage(), e);
-                notifyErrorListener(e);
-            }
-        } finally {
-            if (!mState.compareAndSet(State.RUNNING, State.STOPPING)) {
-                if (mState.compareAndSet(State.STOPPING, State.STOPPED)) {
-                    Log.i(TAG, "runWrite: Stopped mState=" + getState());
-                }
-            }
-            mShutdownlatch.countDown();
-        }
-    }
-
     private void stepRead() throws IOException {
-        // Handle incoming data.
-        byte[] buffer;
-        synchronized (mReadBufferLock) {
-            buffer = mReadBuffer.array();
-        }
-        int len = mSerialPort.read(buffer, mReadTimeout);
-        if (len > 0) {
+        byte[] buffer = mSerialPort.peekReadyReadBuffer();
+        if (buffer.length > 0) {
             if (DEBUG) {
-                Log.d(TAG, "Read data len=" + len);
+                Log.d(TAG, "Read data len=" + buffer.length);
             }
             final Listener listener = getListener();
             if (listener != null) {
-                final byte[] data = new byte[len];
-                System.arraycopy(buffer, 0, data, 0, len);
-                listener.onNewData(data);
+                listener.onNewData(buffer);
             }
-        }
-    }
-
-    private void stepWrite() throws IOException {
-        // Handle outgoing data.
-        byte[] buffer = null;
-        synchronized (mWriteBufferLock) {
-            int len = mWriteBuffer.position();
-            if (len > 0) {
-                buffer = new byte[len];
-                mWriteBuffer.rewind();
-                mWriteBuffer.get(buffer, 0, len);
-                mWriteBuffer.clear();
-            }
-        }
-        if (buffer != null) {
-            if (DEBUG) {
-                Log.d(TAG, "Writing data len=" + buffer.length);
-            }
-            mSerialPort.write(buffer, mWriteTimeout);
         }
     }
 
