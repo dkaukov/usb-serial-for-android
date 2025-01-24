@@ -24,7 +24,7 @@ import java.util.EnumSet;
  *
  * @author mike wakerly (opensource@hoho.com)
  */
-public abstract class CommonUsbSerialPort implements UsbSerialPort {
+public abstract class CommonUsbSerialPort implements UsbSerialPort, UsbAsyncSerialPort {
 
     public static boolean DEBUG = false;
 
@@ -354,4 +354,72 @@ public abstract class CommonUsbSerialPort implements UsbSerialPort {
     @Override
     public void setBreak(boolean value) throws IOException { throw new UnsupportedOperationException(); }
 
+
+    protected interface ChunkConsumer {
+        void process(ByteBuffer chunk) throws IOException;
+    }
+
+    protected static void splitToChunks(byte[] src, int maxPacketSize, ChunkConsumer consumer) throws IOException {
+        int offset = 0;
+        while (offset < src.length) {
+            // Calculate the size of the current chunk
+            int chunkSize = Math.min(maxPacketSize, src.length - offset);
+            // Create a ByteBuffer for the chunk and fill it with data
+            ByteBuffer chunk = ByteBuffer.allocate(chunkSize);
+            chunk.put(src, offset, chunkSize);
+            chunk.flip();  // Prepare the buffer for reading (consuming)
+            // Process the chunk using the provided consumer
+            consumer.process(chunk);
+            // Update the offset to the next chunk
+            offset += chunkSize;
+        }
+    }
+
+    @Override
+    public void asyncWrite(byte[] src) throws IOException {
+        splitToChunks(src, mWriteEndpoint.getMaxPacketSize(), chunk -> {
+            // Create a UsbRequest object
+            UsbRequest writeRequest = new UsbRequest();
+            writeRequest.initialize(mConnection, mWriteEndpoint);
+            writeRequest.setClientData(chunk);
+            // Queue the request for asynchronous write
+            boolean isQueued = writeRequest.queue(chunk, chunk.remaining());
+            if (!isQueued) {
+                throw new IOException("Failed to queue write request");
+            }
+        });
+    }
+
+    @Override
+    public void prepareAsyncReadQueue(int bufferSize, int bufferCount) throws IOException {
+        for (int i = 0; i < bufferCount; i++) {
+            ByteBuffer buffer = ByteBuffer.allocate(bufferSize);
+            UsbRequest request = new UsbRequest();
+            request.setClientData(buffer);
+            request.initialize(mConnection, getReadEndpoint());
+            request.queue(buffer, buffer.capacity());
+        }
+    }
+
+    @Override
+    public byte[] peekReadyReadBuffer() throws IOException {
+        // Wait for the request to complete
+        final UsbRequest completedRequest = mConnection.requestWait();
+        if (completedRequest != null) {
+            final ByteBuffer completedBuffer = (ByteBuffer) completedRequest.getClientData();
+            completedBuffer.flip(); // Prepare for reading
+            final byte[] data = new byte[completedBuffer.remaining()];
+            completedBuffer.get(data);
+            completedBuffer.clear(); // Prepare for reuse
+            // Requeue the buffer and handle potential failures
+            if (!completedRequest.queue(completedBuffer, completedBuffer.capacity())) {
+                Log.e(TAG, "Failed to requeue the buffer");
+                throw new IOException("Failed to requeue the buffer");
+            }
+            return data;
+        } else {
+            Log.e(TAG, "Error waiting for request");
+            throw new IOException("Error waiting for request");
+        }
+    }
 }
