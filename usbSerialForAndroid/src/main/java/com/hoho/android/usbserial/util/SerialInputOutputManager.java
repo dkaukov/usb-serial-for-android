@@ -113,7 +113,7 @@ public class SerialInputOutputManager {
      * @throws IOException on error writing data
      */
     public void writeAsync(byte[] data) throws IOException {
-        mSerialPort.asyncWrite(data);
+        mSerialPort.asyncWrite(data, data.length);
     }
 
     /**
@@ -195,9 +195,10 @@ public class SerialInputOutputManager {
         try {
             setThreadPriority();
             mStartuplatch.countDown();
+            final byte[] buffer = new byte[mReadBufferSize];
             mSerialPort.prepareAsyncReadQueue(mReadBufferSize, mReadBufferCount);
             do {
-                stepRead();
+                stepRead(buffer);
             } while (isStillRunning());
             Log.i(TAG, "runRead: Stopping mState=" + getState());
         } catch (Throwable e) {
@@ -217,15 +218,17 @@ public class SerialInputOutputManager {
         }
     }
 
-    private void stepRead() throws IOException {
-        byte[] buffer = mSerialPort.peekReadyReadBuffer();
+    private void stepRead(final byte[] buffer) throws IOException {
+        int len = mSerialPort.peekReadyReadBuffer(buffer);
         if (buffer.length > 0) {
             if (DEBUG) {
-                Log.d(TAG, "Read data len=" + buffer.length);
+                Log.d(TAG, "Read data len=" + len);
             }
             final Listener listener = getListener();
             if (listener != null) {
-                listener.onNewData(buffer);
+                final byte[] data = new byte[len];
+                System.arraycopy(buffer, 0, data, 0, len);
+                listener.onNewData(data);
             }
         }
     }

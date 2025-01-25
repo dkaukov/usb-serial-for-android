@@ -1,6 +1,7 @@
 package com.hoho.android.usbserial.util;
 
 import static org.junit.Assert.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -34,7 +35,7 @@ public class SerialInputOutputManagerTest {
         CommonUsbSerialPort port = mock(CommonUsbSerialPort.class);
         when(port.getReadEndpoint()).thenReturn(readEndpoint);
         when(port.asAsync()).thenReturn(port);
-        when(port.peekReadyReadBuffer()).thenReturn(new byte[16]);
+        when(port.peekReadyReadBuffer(any())).thenReturn(1);
         SerialInputOutputManager manager = new SerialInputOutputManager(port);
         manager.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
 
