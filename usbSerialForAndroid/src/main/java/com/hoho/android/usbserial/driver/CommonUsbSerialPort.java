@@ -359,11 +359,11 @@ public abstract class CommonUsbSerialPort implements UsbSerialPort, UsbAsyncSeri
         void process(ByteBuffer chunk) throws IOException;
     }
 
-    protected static void splitToChunks(byte[] src, int maxPacketSize, ChunkConsumer consumer) throws IOException {
+    protected static void splitToChunks(byte[] src,int len, int maxPacketSize, ChunkConsumer consumer) throws IOException {
         int offset = 0;
-        while (offset < src.length) {
+        while (offset < len) {
             // Calculate the size of the current chunk
-            int chunkSize = Math.min(maxPacketSize, src.length - offset);
+            int chunkSize = Math.min(maxPacketSize, len - offset);
             // Create a ByteBuffer for the chunk and fill it with data
             ByteBuffer chunk = ByteBuffer.allocate(chunkSize);
             chunk.put(src, offset, chunkSize);
@@ -376,12 +376,11 @@ public abstract class CommonUsbSerialPort implements UsbSerialPort, UsbAsyncSeri
     }
 
     @Override
-    public void asyncWrite(byte[] src) throws IOException {
-        splitToChunks(src, mWriteEndpoint.getMaxPacketSize(), chunk -> {
+    public void asyncWrite(final byte[] src, final int len) throws IOException {
+        splitToChunks(src, len, getWriteEndpoint().getMaxPacketSize(), chunk -> {
             // Create a UsbRequest object
             UsbRequest writeRequest = new UsbRequest();
-            writeRequest.initialize(mConnection, mWriteEndpoint);
-            writeRequest.setClientData(chunk);
+            writeRequest.initialize(mConnection, getWriteEndpoint());
             // Queue the request for asynchronous write
             boolean isQueued = writeRequest.queue(chunk, chunk.remaining());
             if (!isQueued) {
@@ -402,24 +401,28 @@ public abstract class CommonUsbSerialPort implements UsbSerialPort, UsbAsyncSeri
     }
 
     @Override
-    public byte[] peekReadyReadBuffer() throws IOException {
-        // Wait for the request to complete
-        final UsbRequest completedRequest = mConnection.requestWait();
-        if (completedRequest != null) {
-            final ByteBuffer completedBuffer = (ByteBuffer) completedRequest.getClientData();
-            completedBuffer.flip(); // Prepare for reading
-            final byte[] data = new byte[completedBuffer.remaining()];
-            completedBuffer.get(data);
-            completedBuffer.clear(); // Prepare for reuse
-            // Requeue the buffer and handle potential failures
-            if (!completedRequest.queue(completedBuffer, completedBuffer.capacity())) {
-                Log.e(TAG, "Failed to requeue the buffer");
-                throw new IOException("Failed to requeue the buffer");
+    public int peekReadyReadBuffer(final byte[] dst) throws IOException {
+        while (true) {
+            // Wait for the request to complete
+            final UsbRequest completedRequest = mConnection.requestWait();
+            if (completedRequest != null) {
+                if (completedRequest.getEndpoint() == getReadEndpoint() && completedRequest.getClientData() instanceof ByteBuffer) {
+                    final ByteBuffer completedBuffer = (ByteBuffer) completedRequest.getClientData();
+                    completedBuffer.flip(); // Prepare for reading
+                    int len = completedBuffer.remaining();
+                    completedBuffer.get(dst, 0, len);
+                    completedBuffer.clear(); // Prepare for reuse
+                    // Requeue the buffer and handle potential failures
+                    if (!completedRequest.queue(completedBuffer, completedBuffer.capacity())) {
+                        Log.e(TAG, "Failed to requeue the buffer");
+                        throw new IOException("Failed to requeue the buffer");
+                    }
+                    return len;
+                }
+            } else {
+                Log.e(TAG, "Error waiting for request");
+                throw new IOException("Error waiting for request");
             }
-            return data;
-        } else {
-            Log.e(TAG, "Error waiting for request");
-            throw new IOException("Error waiting for request");
         }
     }
 
